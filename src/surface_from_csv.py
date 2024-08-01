@@ -1,12 +1,10 @@
 import pandas as pd
 import numpy as np
 from scipy.interpolate import griddata
-import rasterio, sys
+import rasterio, sys, math
 from rasterio.transform import from_origin
-from rasterio.transform import Affine
 from pyproj import Transformer
-import matplotlib.pyplot as plt
-from osgeo import gdal, osr
+
 
 zone2epsgMap = {
 	7: 3154,
@@ -41,12 +39,13 @@ def getEpsgCode(lat, lon):
 
 
 
-if len(sys.argv) < 2:
-	print("Usage: python3 rasterize.py <file_path>")
+if len(sys.argv) < 3:
+	print("Usage: python3 surface_from_csv.py <csv_file_path> <output_tiff_filePath> ")
 	sys.exit(1)
 
 # Step 1: Read the CSV file
 csv_file_path = sys.argv[1]
+output_tiff_filePath = sys.argv[2]
 df = pd.read_csv(csv_file_path)
 
 
@@ -79,8 +78,8 @@ y = df['y']
 z = df['ChartDatumHeight(LLWM)']
 
 
-# pram ?
-interpol_grid_size = 1000
+# 1m x 1m grid size
+interpol_grid_size = int(math.sqrt((x.max() - x.min()) *(y.max() - y.min())))
 
 # Step 2: Create a grid for interpolation
 grid_x, grid_y = np.meshgrid(np.linspace(x.min(), x.max(), interpol_grid_size), np.linspace(y.min(), y.max(), interpol_grid_size))
@@ -90,15 +89,15 @@ grid_x, grid_y = np.meshgrid(np.linspace(x.min(), x.max(), interpol_grid_size), 
 grid_z = griddata((x, y), z, (grid_x, grid_y), method='linear')
 grid_z = grid_z[::-1]
 
-# grid_x.shape[1] and grid_y.shape[0] = interpol_grid_size
-pixel_size_x = (x.max() - x.min()) / grid_x.shape[1]
-pixel_size_y = (y.max() - y.min()) / grid_y.shape[0]
+
+pixel_size_x = (x.max() - x.min()) / interpol_grid_size
+pixel_size_y = (y.max() - y.min()) / interpol_grid_size
 
 transform = from_origin(grid_x.min(), grid_y.max(), pixel_size_x, pixel_size_y)
 
 
 with rasterio.open(
-	'output3.tif',
+	output_tiff_filePath,
 	'w',
 	driver='GTiff',
 	height=interpol_grid_size,
