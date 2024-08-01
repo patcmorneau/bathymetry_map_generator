@@ -3,7 +3,10 @@ import numpy as np
 from scipy.interpolate import griddata
 import rasterio, sys
 from rasterio.transform import from_origin
+from rasterio.transform import Affine
 from pyproj import Transformer
+import matplotlib.pyplot as plt
+from osgeo import gdal, osr
 
 zone2epsgMap = {
 	7: 3154,
@@ -51,7 +54,7 @@ longitudes = df['Longitude(NAD83)']
 latitudes = df['Latitude(NAD83)']
 
 
-#TODO make sure that all points are in the same zone
+#TODO make sure that all points are in the same zone or make sure that points will be at the right pace even if not in same zone
 epsg_out = 0;
 try:
 	epsg_out = int(getEpsgCode(latitudes[0], longitudes[0]))
@@ -71,34 +74,41 @@ def transform_coords(row):
 # Apply the transformation
 df[['x', 'y']] = df.apply(transform_coords, axis=1)
 
-#df.to_csv('job432_nad83(csrs)_utm9.csv', index=False)
-
 x = df['x']
 y = df['y']
 z = df['ChartDatumHeight(LLWM)']
 
 
+# pram ?
+interpol_grid_size = 1000
+
 # Step 2: Create a grid for interpolation
-grid_x, grid_y = np.meshgrid(np.linspace(x.min(), x.max(), 100), np.linspace(y.min(), y.max(), 100))
+grid_x, grid_y = np.meshgrid(np.linspace(x.min(), x.max(), interpol_grid_size), np.linspace(y.min(), y.max(), interpol_grid_size))
+
 
 # Step 3: Interpolate the surface
 grid_z = griddata((x, y), z, (grid_x, grid_y), method='linear')
+grid_z = grid_z[::-1]
 
-## Step 4: Define the transform and create the GeoTIFF
-#transform = from_origin(grid_x.min(), grid_y.max(), (grid_x.max() - grid_x.min()) / 100, (grid_y.max() - grid_y.min()) / 100)
-#new_dataset = rasterio.open(
-#	'test.tif',
-#	'w',
-#	driver='GTiff',
-#	height=grid_z.shape[0],
-#	width=grid_z.shape[1],
-#	count=1,
-#	dtype=grid_z.dtype,
-#	crs='+proj=latlong',
-#	transform=transform,
-#)
+# grid_x.shape[1] and grid_y.shape[0] = interpol_grid_size
+pixel_size_x = (x.max() - x.min()) / grid_x.shape[1]
+pixel_size_y = (y.max() - y.min()) / grid_y.shape[0]
 
-#new_dataset.write(grid_z, 1)
-#new_dataset.close()
+transform = from_origin(grid_x.min(), grid_y.max(), pixel_size_x, pixel_size_y)
 
-#print(f"GeoTIFF saved")
+
+with rasterio.open(
+	'output3.tif',
+	'w',
+	driver='GTiff',
+	height=interpol_grid_size,
+	width=interpol_grid_size,
+	count=1,
+	dtype=grid_z.dtype,
+	crs=f"EPSG:{epsg_out}",
+	transform=transform,
+) as dst:
+	dst.write(grid_z, 1)
+
+
+print("done")
